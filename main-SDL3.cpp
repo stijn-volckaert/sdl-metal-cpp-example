@@ -35,11 +35,23 @@ int
 main(int argc, char **argv) {
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_InitSubSystem(SDL_INIT_VIDEO);
-    SDL_Window *window = SDL_CreateWindow("SDL Metal", -1, -1, viewport[0], viewport[1], SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE | SDL_WINDOW_METAL);
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
+    SDL_Window *window = SDL_CreateWindow("SDL Metal", viewport[0], viewport[1], SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE | SDL_WINDOW_METAL);
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, "metal", SDL_RENDERER_ACCELERATED);
+
+	if (!renderer) {
+		std::cerr << "Failed to create metal renderer: " << SDL_GetError() << "\n";
+
+		std::cerr << "Available renderers:\n";
+
+		for (int i = 0; i < SDL_GetNumRenderDrivers(); ++i) {
+			std::cerr << "- " << SDL_GetRenderDriver(i) << "\n";
+		}
+		return -1;
+	}
+	
 	SDL_SetWindowKeyboardGrab(window, SDL_TRUE);
 
-	SDL_version compiled, linked;
+	SDL_Version compiled, linked;
 	SDL_VERSION(&compiled);
 	SDL_GetVersion(&linked);
 
@@ -53,8 +65,13 @@ main(int argc, char **argv) {
 	
     NS::Error *err;
 
-    auto swapchain = (CA::MetalLayer*)SDL_RenderGetMetalLayer(renderer);
+    auto swapchain = (CA::MetalLayer*)SDL_GetRenderMetalLayer(renderer);
     auto device = swapchain->device();
+
+	if (!device) {
+		std::cerr << "failed to create Metal device\n";
+		return -1;
+	}
 
     auto name = device->name();
     std::cerr << "device name: " << name->utf8String() << std::endl;
@@ -115,17 +132,17 @@ main(int argc, char **argv) {
 
 		while (SDL_PollEvent(&e) != 0) {
             switch (e.type) {
-                case SDL_QUIT: {
+                case SDL_EVENT_QUIT: {
                     quit = true;
                 } break;
-				case SDL_KEYDOWN: {
+				case SDL_EVENT_KEY_DOWN: {
 					if (e.key.keysym.sym == SDLK_q) {
 						quit = true;
 					} else if (e.key.keysym.sym == SDLK_f) {
 						if (inResize)
 							break;
 						std::cerr << "Switching to " << (fullscreen?"Windowed":"Fullscreen") << "\n";
-						if (SDL_SetWindowFullscreen(window, SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_METAL | (fullscreen ? SDL_WINDOW_RESIZABLE : SDL_WINDOW_FULLSCREEN_DESKTOP))) {
+						if (SDL_SetWindowFullscreen(window, fullscreen?SDL_FALSE:SDL_TRUE)) {
 						   std::cerr << "SDL_SetWindowFullscreen failed: " << SDL_GetError() << "\n";
 						} else {
 							inResize = true;
@@ -134,8 +151,7 @@ main(int argc, char **argv) {
 					} else if (e.key.keysym.sym == SDLK_c) {
 						SDL_bool shouldCapture = capturingMouse ? SDL_FALSE : SDL_TRUE;
 						SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_MODE_WARP, 0);
-						SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SCALING, 0);
-						SDL_SetWindowGrab(window, shouldCapture);
+						SDL_SetWindowMouseGrab(window, shouldCapture);
 						if (SDL_SetRelativeMouseMode(shouldCapture) == 0 &&
 							SDL_GetRelativeMouseMode() == shouldCapture) {
 							std::cerr << (shouldCapture?"Captured":"Released") << " mouse\n";
@@ -145,13 +161,13 @@ main(int argc, char **argv) {
 						}						
 					}
 				} break;
-				case SDL_WINDOWEVENT: {
-					if (e.window.event == SDL_WINDOWEVENT_RESIZED) {
-						int drawableSizeX, drawableSizeY;
-						SDL_Metal_GetDrawableSize(window, &drawableSizeX, &drawableSizeY);
-						inResize = false;
-						std::cerr << "Window resized => " << drawableSizeX << "x" << drawableSizeY << "\n";
-					}
+				case SDL_EVENT_WINDOW_RESIZED: {
+					int drawableSizeX = swapchain->drawableSize().width;
+					int drawableSizeY = swapchain->drawableSize().height;
+		
+					inResize = false;
+					std::cerr << "Window resized => " << drawableSizeX << "x" << drawableSizeY << "\n";
+					
 				} break;
 					
             }
